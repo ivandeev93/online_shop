@@ -1,0 +1,9 @@
+.idea/
+.venv/
+.env
+*.db
+*.sqlite3
+postgres_data/
+dump.sql
+__pycache__/
+*.pyc
