@@ -2,13 +2,26 @@ from fastapi import FastAPI, Request
 from app.routers import cart, categories, orders, products, users, reviews
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+# from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from uuid import uuid4
 from fastapi.responses import JSONResponse
 from loguru import logger
+import os
+
+
+# Папка для изображений товаров
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MEDIA_DIR = os.path.join(BASE_DIR, "..", "media")
+
+os.makedirs(os.path.join(MEDIA_DIR, "products"), exist_ok=True)
+
+
+# Добавление логирования
+logger.add("info.log", format="Log: [{extra[log_id]}:{time} - {level} - {message}]",
+           level="INFO", rotation="10 MB", retention="7 days", compression="zip", enqueue = True)
+
 
 # Создаём приложение FastAPI
 app = FastAPI(
@@ -20,37 +33,40 @@ app = FastAPI(
 @app.middleware("http")
 async def log_middleware(request: Request, call_next):
     log_id = str(uuid4())
-    with logger.contextualize(log_id=log_id):
-        try:
-            response = await call_next(request)
-            if response.status_code in [401, 402, 403, 404]:
-                logger.warning(f"Request to {request.url.path} failed")
-            else:
-                logger.info('Successfully accessed ' + request.url.path)
-        except Exception as ex:
-            logger.error(f"Request to {request.url.path} failed: {ex}")
-            response = JSONResponse(content={"success": False}, status_code=500)
+
+    logger_with_id = logger.bind(log_id=log_id)
+
+    try:
+        response = await call_next(request)
+
+        if response.status_code >= 400:
+            logger_with_id.warning(f"{request.method} {request.url.path}")
+        else:
+            logger_with_id.info(f"{request.method} {request.url.path}")
+
         return response
+
+    except Exception as ex:
+        logger_with_id.error(f"{request.method} {request.url.path} failed: {ex}")
+        return JSONResponse(content={"success": False}, status_code=500)
 
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)     # Сжатие ответов приложения
-app.add_middleware(HTTPSRedirectMiddleware)               # Перенаправление с HTTP на HTTPS
+#app.add_middleware(HTTPSRedirectMiddleware)               # Перенаправление с HTTP на HTTPS
 app.add_middleware(
     TrustedHostMiddleware,          # Перечисление своих доменов, для защиты от DNS-атак
     allowed_hosts=[
         "localhost",
         "127.0.0.1",
-        "localhost:3000",
-        "127.0.0.1:3000",
-        "yourdomain.com",
-        "*.yourdomain.com",
+        "45.136.58.138",
     ]
 )
 
 # Список разрешенных источников
 origins = [
-    "http://localhost:3000",
-    "https://example.com",
+    "http://45.136.58.138:3000",
+    "http://45.136.58.138",
+    "http://127.0.0.1:3000",
 ]
 
 
@@ -62,9 +78,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Добавление логирования
-logger.add("info.log", format="Log: [{extra[log_id]}:{time} - {level} - {message}]", level="INFO", enqueue = True)
-
 
 # Подключаем маршруты категорий
 app.include_router(categories.router)
@@ -75,7 +88,7 @@ app.include_router(cart.router)
 app.include_router(orders.router)
 
 # Для обслуживания медиа файлов
-app.mount("/media", StaticFiles(directory="media"), name="media")
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 #Теперь любой файл из media/products/ будет доступен по URL: http://localhost:8000/media/products/abc123.jpg
 
 
