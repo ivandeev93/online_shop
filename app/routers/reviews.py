@@ -6,7 +6,7 @@ from app.schemas import Review as ReviewSchema, ReviewCreate
 from app.models.products import Product as ProductModel
 
 from app.models.users import User as UserModel
-from app.auth import get_current_admin             #----authentification----#
+from app.auth import get_current_user             #----authentification----#
 from app.auth import get_current_buyer
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,11 +15,10 @@ from app.db_depends import get_async_db
 
 
 router = APIRouter(
-    prefix="/reviews",
-    tags=["reviews"],
+    tags=["reviews"]
 )
 
-@router.get("/", response_model=list[ReviewSchema], status_code=status.HTTP_200_OK)
+@router.get("/reviews/", response_model=list[ReviewSchema], status_code=status.HTTP_200_OK)
 async def get_all_reviews(db: AsyncSession = Depends(get_async_db)):
     """
     Возвращает список всех активных отзывов.
@@ -32,7 +31,7 @@ async def get_all_reviews(db: AsyncSession = Depends(get_async_db)):
 
 
 @router.get("/products/{product_id}/reviews/", response_model=list[ReviewSchema], status_code=status.HTTP_200_OK)
-async def get_review(product_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_reviews(product_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     Возвращает список активных отзывов для указанного товара.
     """
@@ -55,7 +54,7 @@ async def get_review(product_id: int, db: AsyncSession = Depends(get_async_db)):
 
 
 @router.post("/reviews/", response_model=ReviewSchema, status_code=status.HTTP_201_CREATED)
-async def create_post(
+async def create_review(
     review: ReviewCreate,
     db: AsyncSession = Depends(get_async_db),
     current_user: UserModel = Depends(get_current_buyer)
@@ -103,7 +102,7 @@ async def create_post(
 async def delete_review(
         review_id: int,
         db: AsyncSession = Depends(get_async_db),
-        _current_user: UserModel = Depends(get_current_admin)
+        current_user: UserModel = Depends(get_current_user)
 ):
     """
     Выполняет мягкое удаление отзыва (только для 'admin').
@@ -117,8 +116,17 @@ async def delete_review(
     if not review:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found or inactive")
 
+    # Проверка прав
+    if review.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+
     # Мягкое удаление
     review.is_active = False
+
+    await db.flush()
 
     # Пересчет рейтинга
     result = await db.execute(
@@ -129,7 +137,7 @@ async def delete_review(
     )
     avg_rating = result.scalar() or 0.0
     product = await db.get(ProductModel, review.product_id)
-    product.rating = avg_rating
+    product.rating = float(avg_rating)
 
     await db.commit()
     await db.refresh(review)  # Для возврата is_active = False
