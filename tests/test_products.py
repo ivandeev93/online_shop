@@ -68,3 +68,181 @@ async def test_get_all_products(client):
     assert len(products) > 1
     assert products[0]["name"] == "Apple"
     assert products[1]["name"] == "Banana"
+
+
+
+#############-----------------------###################
+
+import pytest
+from httpx import AsyncClient
+
+from app.models.products import Product as ProductModel
+from app.models.categories import Category as CategoryModel
+from app.auth import get_current_seller
+from app.models.users import User
+
+
+# -------------------------
+# AUTH OVERRIDE (seller)
+# -------------------------
+async def override_get_current_seller():
+    return User(id=1, email="test@test.com", role="seller")
+
+
+# -------------------------
+# CATEGORY FIXTURE
+# -------------------------
+@pytest.fixture
+async def category(async_sessionmaker):
+    async with async_sessionmaker() as session:
+        cat = CategoryModel(
+            name="Test category",
+            is_active=True,
+        )
+        session.add(cat)
+        await session.commit()
+        await session.refresh(cat)
+        return cat
+
+
+# -------------------------
+# CREATE PRODUCT
+# -------------------------
+@pytest.mark.asyncio
+async def test_create_product(client: AsyncClient, category):
+    response = await client.post(
+        "/products/",
+        data={
+            "name": "Phone",
+            "description": "Nice phone",
+            "price": 100,
+            "stock": 10,
+            "category_id": category.id,
+        },
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+
+    assert data["name"] == "Phone"
+    assert data["price"] == 100
+    assert data["category_id"] == category.id
+
+
+# -------------------------
+# GET PRODUCT BY ID
+# -------------------------
+@pytest.mark.asyncio
+async def test_get_product(client: AsyncClient, category):
+    create = await client.post(
+        "/products/",
+        data={
+            "name": "Laptop",
+            "description": "Gaming",
+            "price": 2000,
+            "stock": 5,
+            "category_id": category.id,
+        },
+    )
+
+    product_id = create.json()["id"]
+
+    response = await client.get(f"/products/{product_id}")
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Laptop"
+
+
+# -------------------------
+# GET ALL PRODUCTS
+# -------------------------
+@pytest.mark.asyncio
+async def test_get_all_products(client: AsyncClient, category):
+    await client.post(
+        "/products/",
+        data={
+            "name": "A",
+            "description": "A",
+            "price": 10,
+            "stock": 1,
+            "category_id": category.id,
+        },
+    )
+
+    response = await client.get("/products/")
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert "items" in data
+    assert data["total"] >= 1
+
+
+# -------------------------
+# UPDATE PRODUCT
+# -------------------------
+@pytest.mark.asyncio
+async def test_update_product(client: AsyncClient, category):
+    create = await client.post(
+        "/products/",
+        data={
+            "name": "Old",
+            "description": "Old desc",
+            "price": 10,
+            "stock": 1,
+            "category_id": category.id,
+        },
+    )
+
+    product_id = create.json()["id"]
+
+    response = await client.put(
+        f"/products/{product_id}",
+        data={
+            "name": "New",
+            "description": "New desc",
+            "price": 20,
+            "stock": 2,
+            "category_id": category.id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "New"
+
+
+# -------------------------
+# DELETE PRODUCT (soft delete)
+# -------------------------
+@pytest.mark.asyncio
+async def test_delete_product(client: AsyncClient, category):
+    create = await client.post(
+        "/products/",
+        data={
+            "name": "To delete",
+            "description": "X",
+            "price": 10,
+            "stock": 1,
+            "category_id": category.id,
+        },
+    )
+
+    product_id = create.json()["id"]
+
+    response = await client.delete(f"/products/{product_id}")
+
+    assert response.status_code == 200
+
+    # после удаления должен быть 404 (is_active=False)
+    get = await client.get(f"/products/{product_id}")
+    assert get.status_code == 404
+
+
+# -------------------------
+# NOT FOUND CASE
+# -------------------------
+@pytest.mark.asyncio
+async def test_get_product_not_found(client: AsyncClient):
+    response = await client.get("/products/999999")
+
+    assert response.status_code == 404

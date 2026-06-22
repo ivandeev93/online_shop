@@ -12,7 +12,7 @@ from app.models import Product
 
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"  # отдельная БД для тестов
-
+# "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
 
 @pytest_asyncio.fixture(scope="session")      # scope="function" - создание
 async def test_engine():                      # новой бд для каждого теста
@@ -39,10 +39,7 @@ async def app_test(async_sessionmaker):
             finally:
                 await session.rollback()
 
-    prod_app.dependency_overrides[get_db] = _get_db
-    async with async_sessionmaker() as session:
-        await session.execute(delete(Item))
-        await session.commit()
+    prod_app.dependency_overrides[get_async_db] = _get_db
     yield prod_app
     prod_app.dependency_overrides.clear()  # Очистка после тестов
 
