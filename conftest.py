@@ -32,6 +32,10 @@ async def async_sessionmaker(test_engine):
 
 @pytest_asyncio.fixture(scope="function")
 async def app_test(async_sessionmaker):
+    async with async_sessionmaker() as session:               # Удаление записей в таблицах
+        for table in reversed(Base.metadata.sorted_tables):
+            await session.execute(delete(table))
+        await session.commit()
     async def _get_db():
         async with async_sessionmaker() as session:
             try:
