@@ -70,6 +70,29 @@ async def test_get_all_products(client):
     assert products[1]["name"] == "Banana"
 
 
+############################
+
+from fastapi.testclient import TestClient
+
+
+def test_protected_endpoint_with_fixture(test_client: TestClient, test_user_token):
+    token = test_user_token(username="testuser")
+    response = test_client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["user"]["username"] == "testuser"
+
+
+def test_protected_endpoint_no_token(test_client: TestClient):
+    response = test_client.get("/protected")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
+def test_protected_endpoint_invalid_token(test_client: TestClient):
+    response = test_client.get("/protected", headers={"Authorization": "Bearer invalid-token"})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid token"}
+
 
 #############-----------------------###################
 
