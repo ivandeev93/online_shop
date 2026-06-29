@@ -34,7 +34,7 @@ async def test_engine():                      # новой бд для кажд�
 
 @pytest_asyncio.fixture(scope="session")
 async def async_sessionmaker(test_engine):
-    return async_sessionmaker(test_engine, expire_on_commit=False)
+    return sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
