@@ -1,22 +1,31 @@
 import pytest
 from sqlalchemy import select
 from app.models import Product
+from decimal import Decimal
 
 # get_all_products, get_products_by_category, get_product, create_product, update_product, delete_product
 @pytest.mark.asyncio
-async def test_create_and_get_product(client, async_sessionmaker):
-    r = await client.post("/products", json={"name": "Apple", "price": 1.5})
-    assert r.status_code == 200
+async def test_create_and_get_product(client, seller_token, category, async_sessionmaker):
+    # Нужно создать категорию и ,возможно, поменять json на data
+    r = await client.post(
+        "/products/",
+        json={"name": "Phone", "price": "100", "stock": "5", "category_id": str(category.id)},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert r.status_code == 201
     created = r.json()
-    assert created["name"] == "Apple"
-    assert created["price"] == 1.5
+    assert created["name"] == "Phone"
+    assert created["price"] == Decimal("100")
+    assert created["stock"] == 5
+    assert created["category_id"] == 1
     assert "id" in created
 
     async with async_sessionmaker() as session:
         product = (await session.execute(select(Product).filter(Product.id == created["id"]))).scalars().first()
         assert product is not None
-        assert product.name == "Apple"
-        assert product.price == 1.5
+        assert product.name == "Phone"
+        assert product.price == Decimal("100")
 
     r2 = await client.get(f"/products/{created['id']}")
     assert r2.status_code == 200
