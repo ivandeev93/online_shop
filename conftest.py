@@ -5,20 +5,21 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from sqlalchemy import delete
+from sqlalchemy import text
 from app.main import app as prod_app
 from app.database import Base
 from app.db_depends import get_async_db
 
 from app.auth import create_access_token
 from app.models.users import User as UserModel
+from app.models.categories import Category as CategoryModel
 
 import pytest
 
 
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"  # отдельная БД для тестов
-# "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
+TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"  # отдельная БД для тестов
+# "sqlite+aiosqlite:///:memory:"
 
 @pytest_asyncio.fixture(scope="session")      # scope="function" - создание
 async def test_engine():                      # новой бд для каждого теста
@@ -33,15 +34,20 @@ async def test_engine():                      # новой бд для кажд�
 
 
 @pytest_asyncio.fixture(scope="session")
-async def async_sessionmaker(test_engine):
+async def async_sessionmaker_fixture(test_engine):
     return sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def clean_db(async_sessionmaker):
     async with async_sessionmaker() as session:
-        for table in reversed(Base.metadata.sorted_tables):
-            await session.execute(delete(table))
+        await session.execute(
+            text(
+                "TRUNCATE TABLE "
+                "products, categories, users "
+                "RESTART IDENTITY CASCADE;"
+            )
+        )
         await session.commit()
 
 
@@ -107,3 +113,20 @@ async def buyer_token(token_factory):
 @pytest_asyncio.fixture
 async def admin_token(token_factory):
     return await token_factory("admin@test.com", "admin")
+
+
+# Фикстура тестовой категории
+@pytest_asyncio.fixture
+async def category(async_sessionmaker_fixture):
+    async with async_sessionmaker_fixture() as session:
+
+        category = CategoryModel(
+            name="Electronics",
+            is_active=True,
+        )
+
+        session.add(category)
+        await session.commit()
+        await session.refresh(category)
+
+        return category
