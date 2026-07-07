@@ -23,8 +23,7 @@ TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/test_
 
 @pytest_asyncio.fixture(scope="session")      # scope="function" - создание
 async def test_engine():                      # новой бд для каждого теста
-    engine = create_async_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False},
-                                 poolclass=StaticPool, echo=False, future=True)
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, future=True)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -39,8 +38,8 @@ async def async_sessionmaker_fixture(test_engine):
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
-async def clean_db(async_sessionmaker):
-    async with async_sessionmaker() as session:
+async def clean_db(async_sessionmaker_fixture):
+    async with async_sessionmaker_fixture() as session:
         await session.execute(
             text(
                 "TRUNCATE TABLE "
@@ -52,9 +51,9 @@ async def clean_db(async_sessionmaker):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def app_test(async_sessionmaker):
+async def app_test(async_sessionmaker_fixture):
     async def _get_db():
-        async with async_sessionmaker() as session:
+        async with async_sessionmaker_fixture() as session:
             yield session
 
 
@@ -73,13 +72,13 @@ async def client(app_test: FastAPI):
 
 
 @pytest_asyncio.fixture
-async def token_factory(async_sessionmaker):
+async def token_factory(async_sessionmaker_fixture):
     async def _create_token(
         email: str,
         role: str,
         password: str = "fake",
     ) -> str:
-        async with async_sessionmaker() as session:
+        async with async_sessionmaker_fixture() as session:
             user = UserModel(
                 email=email,
                 hashed_password=password,
