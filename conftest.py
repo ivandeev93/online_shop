@@ -134,7 +134,14 @@ async def category(async_sessionmaker_fixture):
 # Создание товара
 @pytest_asyncio.fixture
 async def product_factory(client, seller_token):
-    async def create_product(category_id: int, **kwargs):
+    async def create_product(
+        *,
+        category_id: int,
+        token: str | None = None,
+        **kwargs,
+    ):
+        token = token or seller_token
+
         payload = {
             "name": "Phone",
             "description": "Test phone",
@@ -147,7 +154,7 @@ async def product_factory(client, seller_token):
         response = await client.post(
             "/products/",
             data=payload,
-            headers={"Authorization": f"Bearer {seller_token}"},
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         assert response.status_code == 201

@@ -3,18 +3,14 @@ from sqlalchemy import select
 from app.models.products import Product
 from decimal import Decimal
 
-# get_all_products, get_products_by_category, get_product, create_product, update_product, delete_product
+
 @pytest.mark.asyncio
-async def test_create_and_get_product(client, seller_token, category, async_sessionmaker_fixture):
+async def test_create_and_get_product(client, product_factory,
+                                      category, async_sessionmaker_fixture):
 
-    r = await client.post(
-        "/products/",
-        data={"name": "Phone", "description": "Test phone", "price": "100", "stock": "5", "category_id": str(category.id)},
-        headers={"Authorization": f"Bearer {seller_token}"},
-    )
+    created = await product_factory(category_id=category.id,)
 
-    assert r.status_code == 201
-    created = r.json()
+    assert created.status_code == 201
 
     # Проверка ответа API
     assert created["id"] is not None
@@ -41,15 +37,15 @@ async def test_create_and_get_product(client, seller_token, category, async_sess
         assert product.image_url is None
         assert product.is_active is True
 
-    r2 = await client.get(f"/products/{created['id']}")
-    assert r2.status_code == 200
-    assert r2.json() == created
+    response = await client.get(f"/products/{created['id']}")
+    assert response.status_code == 200
+    assert response.json() == created
 
 
 @pytest.mark.asyncio
 async def test_create_product_invalid_category(client, seller_token):
 
-    r = await client.post(
+    response = await client.post(
         "/products/",
         data={
             "name": "Phone",
@@ -61,14 +57,14 @@ async def test_create_product_invalid_category(client, seller_token):
         headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    assert r.status_code == 400
-    assert r.json()["detail"] == "Category not found or inactive"
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Category not found or inactive"
 
 
 @pytest.mark.asyncio
 async def test_create_product_buyer_forbidden(client, buyer_token, category):
 
-    r = await client.post(
+    response = await client.post(
         "/products/",
         data={
             "name": "Phone",
@@ -80,45 +76,30 @@ async def test_create_product_buyer_forbidden(client, buyer_token, category):
         headers={"Authorization": f"Bearer {buyer_token}"},
     )
 
-    assert r.status_code == 403
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_get_product_not_found(client):
 
-    r = await client.get("/products/999")
+    response = await client.get("/products/999")
 
-    assert r.status_code == 404
-    assert r.json()["detail"] == "Product not found or inactive"
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Product not found or inactive"
 
 
 @pytest.mark.asyncio
-async def test_get_products_by_category(
-    client,
-    seller_token,
-    category,
-):
+async def test_get_products_by_category(client, category, product_factory):
 
     for i in range(2):
-        r = await client.post(
-            "/products/",
-            data={
-                "name": f"Phone {i}",
-                "description": "Test phone",
-                "price": "100",
-                "stock": "5",
-                "category_id": str(category.id),
-            },
-            headers={"Authorization": f"Bearer {seller_token}"},
-        )
+        await product_factory(category_id=category.id,
+                                  name=f"Phone {i}")
 
-        assert r.status_code == 201
+    response = await client.get(f"/products/category/{category.id}")
 
-    r = await client.get(f"/products/category/{category.id}")
+    assert response.status_code == 200
 
-    assert r.status_code == 200
-
-    products = r.json()
+    products = response.json()
 
     assert len(products) == 2
     assert products[0]["category_id"] == category.id
@@ -128,37 +109,27 @@ async def test_get_products_by_category(
 @pytest.mark.asyncio
 async def test_get_products_by_invalid_category(client):
 
-    r = await client.get("/products/category/999")
+    response = await client.get("/products/category/999")
 
-    assert r.status_code == 404
-    assert r.json()["detail"] == "Category not found or inactive"
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Category not found or inactive"
 
 
 @pytest.mark.asyncio
-async def test_get_all_products(
-    client,
-    seller_token,
-    category,
-):
+async def test_get_all_products(client, category, product_factory):
 
     for i in range(3):
-        await client.post(
-            "/products/",
-            data={
-                "name": f"Phone {i}",
-                "description": "Test",
-                "price": "100",
-                "stock": "5",
-                "category_id": str(category.id),
-            },
-            headers={"Authorization": f"Bearer {seller_token}"},
+        await product_factory(
+            category_id=category.id,
+            name=f"Phone {i}",
+            description="Test",
         )
 
-    r = await client.get("/products/")
+    response = await client.get("/products/")
 
-    assert r.status_code == 200
+    assert response.status_code == 200
 
-    body = r.json()
+    body = response.json()
 
     assert body["total"] == 3
     assert body["page"] == 1
@@ -169,36 +140,24 @@ async def test_get_all_products(
 @pytest.mark.asyncio
 async def test_get_products_invalid_price_range(client):
 
-    r = await client.get(
+    response = await client.get(
         "/products/?min_price=100&max_price=50"
     )
 
-    assert r.status_code == 400
-    assert r.json()["detail"] == "min_price не может быть больше max_price"
+    assert response.status_code == 400
+    assert response.json()["detail"] == "min_price не может быть больше max_price"
 
 
 @pytest.mark.asyncio
-async def test_update_product(
-    client,
-    seller_token,
-    category,
-):
+async def test_update_product(client, seller_token,
+                              category, product_factory):
 
-    create = await client.post(
-        "/products/",
-        data={
-            "name": "Phone",
-            "description": "Old description",
-            "price": "100",
-            "stock": "5",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+    product = await product_factory(
+        category_id=category.id,
+        description="Old description",
     )
 
-    product = create.json()
-
-    r = await client.put(
+    response = await client.put(
         f"/products/{product['id']}",
         data={
             "name": "iPhone",
@@ -210,9 +169,9 @@ async def test_update_product(
         headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    assert r.status_code == 200
+    assert response.status_code == 200
 
-    updated = r.json()
+    updated = response.json()
 
     assert updated["name"] == "iPhone"
     assert updated["description"] == "New description"
@@ -221,13 +180,9 @@ async def test_update_product(
 
 
 @pytest.mark.asyncio
-async def test_update_product_not_found(
-    client,
-    seller_token,
-    category,
-):
+async def test_update_product_not_found(client, seller_token, category):
 
-    r = await client.put(
+    response = await client.put(
         "/products/999",
         data={
             "name": "Phone",
@@ -239,38 +194,25 @@ async def test_update_product_not_found(
         headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    assert r.status_code == 404
-    assert r.json()["detail"] == "Product not found"
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Product not found"
 
 
 @pytest.mark.asyncio
-async def test_update_foreign_product(
-    client,
-    seller_token,
-    token_factory,
-    category,
-):
+async def test_update_foreign_product(client, seller_token, token_factory,
+                                      category, product_factory):
 
     second_seller = await token_factory(
         "seller2@test.com",
         "seller",
     )
 
-    create = await client.post(
-        "/products/",
-        data={
-            "name": "Phone",
-            "description": "Test",
-            "price": "100",
-            "stock": "5",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+    product = await product_factory(
+        category_id=category.id,
+        token=seller_token,
     )
 
-    product = create.json()
-
-    r = await client.put(
+    response = await client.put(
         f"/products/{product['id']}",
         data={
             "name": "Hack",
@@ -282,32 +224,18 @@ async def test_update_foreign_product(
         headers={"Authorization": f"Bearer {second_seller}"},
     )
 
-    assert r.status_code == 403
-    assert r.json()["detail"] == "You can only update your own products"
+    assert response.status_code == 403
+    assert response.json()["detail"] == "You can only update your own products"
 
 
 @pytest.mark.asyncio
-async def test_update_product_invalid_category(
-    client,
-    seller_token,
-    category,
-):
-
-    create = await client.post(
-        "/products/",
-        data={
-            "name": "Phone",
-            "description": "Test",
-            "price": "100",
-            "stock": "5",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+async def test_update_product_invalid_category(client, seller_token,
+                                               product_factory, category):
+    product = await product_factory(
+        category_id=category.id,
     )
 
-    product = create.json()
-
-    r = await client.put(
+    response = await client.put(
         f"/products/{product['id']}",
         data={
             "name": "Phone",
@@ -319,121 +247,81 @@ async def test_update_product_invalid_category(
         headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    assert r.status_code == 400
-    assert r.json()["detail"] == "Category not found or inactive"
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Category not found or inactive"
 
 
 @pytest.mark.asyncio
-async def test_delete_product(
-    client,
-    seller_token,
-    category,
-):
+async def test_delete_product(client, seller_token, product_factory, category):
 
-    create = await client.post(
-        "/products/",
-        data={
-            "name": "Phone",
-            "description": "Test",
-            "price": "100",
-            "stock": "5",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+    product = await product_factory(
+        category_id=category.id,
     )
 
-    product = create.json()
-
-    r = await client.delete(
+    response = await client.delete(
         f"/products/{product['id']}",
         headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    assert r.status_code == 200
-    assert r.json()["is_active"] is False
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
 
-    r = await client.get(f"/products/{product['id']}")
-    assert r.status_code == 404
+    response = await client.get(f"/products/{product['id']}")
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_delete_foreign_product(
-    client,
-    seller_token,
-    token_factory,
-    category,
-):
+async def test_delete_foreign_product(client, seller_token, token_factory,
+                                      category, product_factory):
 
     second_seller = await token_factory(
         "seller2@test.com",
         "seller",
     )
 
-    create = await client.post(
-        "/products/",
-        data={
-            "name": "Phone",
-            "description": "Test",
-            "price": "100",
-            "stock": "5",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+    product = await product_factory(
+        category_id=category.id,
+        token=seller_token,
     )
 
-    product = create.json()
-
-    r = await client.delete(
+    response = await client.delete(
         f"/products/{product['id']}",
         headers={"Authorization": f"Bearer {second_seller}"},
     )
 
-    assert r.status_code == 403
-    assert r.json()["detail"] == "You can only delete your own products"
+    assert response.status_code == 403
+    assert response.json()["detail"] == "You can only delete your own products"
 
 
 @pytest.mark.asyncio
-async def test_delete_product_not_found(
-    client,
-    seller_token,
-):
+async def test_delete_product_not_found(client, seller_token):
 
-    r = await client.delete(
+    response = await client.delete(
         "/products/999",
         headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    assert r.status_code == 404
-    assert r.json()["detail"] == "Product not found or inactive"
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Product not found or inactive"
 
 
 # Проверка пагинации
 @pytest.mark.asyncio
-async def test_get_all_products_pagination(
-    client,
-    seller_token,
-    category,
-):
+async def test_get_all_products_pagination(client, seller_token,
+                                           category, product_factory):
     # создаём 25 товаров
     for i in range(25):
-        r = await client.post(
-            "/products/",
-            data={
-                "name": f"Phone {i}",
-                "description": "Test",
-                "price": "100",
-                "stock": "5",
-                "category_id": str(category.id),
-            },
-            headers={"Authorization": f"Bearer {seller_token}"},
+        await product_factory(
+            category_id=category.id,
+            name=f"Phone {i}",
+            description="Test",
         )
-        assert r.status_code == 201
 
-    r = await client.get("/products?page=2&page_size=20")
+    response = await client.get("/products?page=2&page_size=20")
 
-    assert r.status_code == 200
+    assert response.status_code == 200
 
-    body = r.json()
+    body = response.json()
 
     assert body["total"] == 25
     assert body["page"] == 2
@@ -447,31 +335,21 @@ async def test_get_all_products_pagination(
 
 # Тест на выборку по цене
 @pytest.mark.asyncio
-async def test_get_products_by_price_range(
-    client,
-    seller_token,
-    category,
-):
+async def test_get_products_by_price_range(client, category, product_factory):
     prices = [50, 100, 150]
 
     for price in prices:
-        await client.post(
-            "/products/",
-            data={
-                "name": f"Phone {price}",
-                "description": "Test",
-                "price": str(price),
-                "stock": "5",
-                "category_id": str(category.id),
-            },
-            headers={"Authorization": f"Bearer {seller_token}"},
+        await product_factory(
+            category_id=category.id,
+            name=f"Phone {price}",
+            price=str(price),
         )
 
-    r = await client.get("/products?min_price=80&max_price=120")
+    response = await client.get("/products?min_price=80&max_price=120")
 
-    assert r.status_code == 200
+    assert response.status_code == 200
 
-    body = r.json()
+    body = response.json()
 
     assert body["total"] == 1
     assert len(body["items"]) == 1
@@ -480,40 +358,25 @@ async def test_get_products_by_price_range(
 
 # Проверка фильтра в наличии
 @pytest.mark.asyncio
-async def test_get_products_in_stock_filter(
-    client,
-    seller_token,
-    category,
-):
-    await client.post(
-        "/products/",
-        data={
-            "name": "Available",
-            "description": "Test",
-            "price": "100",
-            "stock": "5",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+async def test_get_products_in_stock_filter(client, product_factory, category):
+
+    await product_factory(
+        category_id=category.id,
+        name="Available",
+        stock="5",
     )
 
-    await client.post(
-        "/products/",
-        data={
-            "name": "Unavailable",
-            "description": "Test",
-            "price": "100",
-            "stock": "0",
-            "category_id": str(category.id),
-        },
-        headers={"Authorization": f"Bearer {seller_token}"},
+    await product_factory(
+        category_id=category.id,
+        name="Unavailable",
+        stock="0",
     )
 
-    r = await client.get("/products?in_stock=true")
+    response = await client.get("/products?in_stock=true")
 
-    assert r.status_code == 200
 
-    body = r.json()
+    body = response.json()
 
+    assert response.status_code == 200
     assert body["total"] == 1
     assert body["items"][0]["name"] == "Available"
